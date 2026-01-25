@@ -5,59 +5,156 @@ from tqdm.auto import tqdm
 from accelerate import PartialState
 import os
 import time
+import random
+import json
 from datetime import datetime
 
 
-def scan_test_prompts(base_dir, prompt_levels, color_levels, split='test'):
+def generate_output_dir_name(model_name, prompt_levels, color_levels, split, max_samples_per_dir, lora_weights=""):
     """
-    Scan txt files according to specified levels
+    Auto-generate output directory name based on configuration
+    
+    Format: {model_short_name}_{lora_flag}_P{prompt_levels}_C{color_levels}_{split}_{samples}
+    
+    Examples:
+      - Qwen-Image_P1_C3_test_1000
+      - Qwen-Image_lora_P1-2_C1-2-3_test_full
+    """
+    # Extract short model name (last part)
+    model_short = model_name.split('/')[-1]
+    
+    # LoRA flag
+    lora_flag = "_lora" if lora_weights else ""
+    
+    # Format prompt levels
+    p_str = "-".join(map(str, sorted(prompt_levels)))
+    
+    # Format color levels
+    c_str = "-".join(map(str, sorted(color_levels)))
+    
+    # Samples string
+    if max_samples_per_dir is None:
+        samples_str = "full"
+    else:
+        samples_str = str(max_samples_per_dir)
+    
+    # Combine directory name
+    dir_name = f"{model_short}{lora_flag}_P{p_str}_C{c_str}_{split}_{samples_str}"
+    
+    return os.path.join("outputs", dir_name)
+
+
+def load_or_create_sample_list(output_dir, base_dir, prompt_levels, color_levels, split, max_samples_per_dir):
+    """
+    Load existing sample list or create a new one with random sampling
     
     Args:
-      base_dir: Base directory "ColorBench-v1/Color_Split_Sets1"
-      prompt_levels: [1, 2, 3] or [1, 3] etc.
-      color_levels: [1, 2, 3] or [2] etc.
+      output_dir: Output directory
+      base_dir: Base directory for prompts
+      prompt_levels: List of prompt levels
+      color_levels: List of color levels
       split: 'train' / 'val' / 'test'
+      max_samples_per_dir: Maximum samples per directory, None means no limit
       
     Returns:
       [(txt absolute path, prompt content, relative path), ...]
     """
-    prompt_data = []
+    list_file = os.path.join(output_dir, "sample_list.json")
     
-    for p_level in prompt_levels:
-        for c_level in color_levels:
-            # Construct directory path
-            dir_path = os.path.join(
-                base_dir, 
-                f"Prompt_Level_{p_level}", 
-                f"Color_Level_{c_level}", 
-                split
-            )
+    if os.path.exists(list_file):
+        # Load existing sample list for resume
+        print(f"Loading existing sample list from: {list_file}")
+        with open(list_file, 'r', encoding='utf-8') as f:
+            saved_data = json.load(f)
+        
+        # Reconstruct prompt_data from saved list
+        prompt_data = []
+        for item in saved_data['samples']:
+            txt_path = item['txt_path']
+            relative_path = item['relative_path']
             
-            # Skip if directory does not exist
-            if not os.path.exists(dir_path):
-                print(f"Warning: Directory not found, skipping: {dir_path}")
+            # Read prompt content
+            try:
+                with open(txt_path, 'r', encoding='utf-8') as f:
+                    prompt = f.read().strip()
+                prompt_data.append((txt_path, prompt, relative_path))
+            except Exception as e:
+                print(f"Warning: Failed to read {txt_path}, skipping. Error: {e}")
                 continue
-            
-            # Scan all .txt files in the directory
-            for root, dirs, files in os.walk(dir_path):
-                for file in files:
-                    if file.endswith('.txt'):
-                        txt_path = os.path.join(root, file)
-                        
-                        # Read prompt
-                        try:
-                            with open(txt_path, 'r', encoding='utf-8') as f:
-                                prompt = f.read().strip()
-                        except Exception as e:
-                            print(f"Warning: Failed to read {txt_path}, skipping. Error: {e}")
-                            continue
-                        
-                        # Calculate relative path (relative to base_dir)
-                        relative_path = os.path.relpath(txt_path, base_dir)
-                        
-                        prompt_data.append((txt_path, prompt, relative_path))
+        
+        print(f"Loaded {len(prompt_data)} samples from saved list")
+        return prompt_data
     
-    return prompt_data
+    else:
+        # Create new sample list
+        print("Creating new sample list...")
+        prompt_data = []
+        sample_info = {
+            'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'base_dir': base_dir,
+            'prompt_levels': prompt_levels,
+            'color_levels': color_levels,
+            'split': split,
+            'max_samples_per_dir': max_samples_per_dir,
+            'samples': []
+        }
+        
+        for p_level in prompt_levels:
+            for c_level in color_levels:
+                # Construct directory path
+                dir_path = os.path.join(
+                    base_dir, 
+                    f"Prompt_Level_{p_level}", 
+                    f"Color_Level_{c_level}", 
+                    split
+                )
+                
+                # Skip if directory does not exist
+                if not os.path.exists(dir_path):
+                    print(f"Warning: Directory not found, skipping: {dir_path}")
+                    continue
+                
+                # Collect all .txt files in the current directory
+                dir_files = []
+                for root, dirs, files in os.walk(dir_path):
+                    for file in files:
+                        if file.endswith('.txt'):
+                            txt_path = os.path.join(root, file)
+                            dir_files.append(txt_path)
+                
+                # Random sampling if exceeds max_samples_per_dir
+                original_count = len(dir_files)
+                if max_samples_per_dir is not None and original_count > max_samples_per_dir:
+                    dir_files = random.sample(dir_files, max_samples_per_dir)
+                    print(f"Sampled {max_samples_per_dir} from {original_count} files in: Prompt_Level_{p_level}/Color_Level_{c_level}/{split}")
+                else:
+                    print(f"Using all {original_count} files in: Prompt_Level_{p_level}/Color_Level_{c_level}/{split}")
+                
+                # Read prompts from sampled files
+                for txt_path in dir_files:
+                    try:
+                        with open(txt_path, 'r', encoding='utf-8') as f:
+                            prompt = f.read().strip()
+                    except Exception as e:
+                        print(f"Warning: Failed to read {txt_path}, skipping. Error: {e}")
+                        continue
+                    
+                    # Calculate relative path (relative to base_dir)
+                    relative_path = os.path.relpath(txt_path, base_dir)
+                    
+                    prompt_data.append((txt_path, prompt, relative_path))
+                    sample_info['samples'].append({
+                        'txt_path': txt_path,
+                        'relative_path': relative_path
+                    })
+        
+        # Save sample list to file
+        os.makedirs(output_dir, exist_ok=True)
+        with open(list_file, 'w', encoding='utf-8') as f:
+            json.dump(sample_info, f, ensure_ascii=False, indent=2)
+        
+        print(f"Created and saved {len(prompt_data)} samples to: {list_file}")
+        return prompt_data
 
 
 def path_to_filename(relative_path):
@@ -108,13 +205,15 @@ def main():
     # ===== Configuration Parameters =====
     model_name = "Qwen/Qwen-Image"
     lora_weights = ""
-    output_dir = "outputs"
     
     # Dataset configuration
     base_dir = "ColorBench-v1/Test_Sets"
-    prompt_levels = [1]
-    color_levels = [1]
+    prompt_levels = [1, 2]
+    color_levels = [3]
     split = 'test'
+    
+    # Sampling configuration (None means no limit)
+    max_samples_per_dir = 1000
     
     # Generation parameters
     negative_prompt = " "
@@ -125,6 +224,47 @@ def main():
     base_seed = 42
     batch_size = 8
     
+    # Auto-generate output directory name
+    output_dir = generate_output_dir_name(
+        model_name, prompt_levels, color_levels, split, 
+        max_samples_per_dir, lora_weights
+    )
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    distributed_state = PartialState()
+    
+    # Main process creates or loads sample list
+    if distributed_state.is_main_process:
+        prompt_data = load_or_create_sample_list(
+            output_dir,
+            base_dir,
+            prompt_levels,
+            color_levels,
+            split,
+            max_samples_per_dir
+        )
+    
+    # Wait for main process to finish
+    distributed_state.wait_for_everyone()
+    
+    # All processes load from the saved file
+    if not distributed_state.is_main_process:
+        list_file = os.path.join(output_dir, "sample_list.json")
+        with open(list_file, 'r', encoding='utf-8') as f:
+            saved_data = json.load(f)
+        
+        prompt_data = []
+        for item in saved_data['samples']:
+            txt_path = item['txt_path']
+            relative_path = item['relative_path']
+            try:
+                with open(txt_path, 'r', encoding='utf-8') as f:
+                    prompt = f.read().strip()
+                prompt_data.append((txt_path, prompt, relative_path))
+            except Exception as e:
+                continue
+    
     # Save configuration
     config = {
         'model_name': model_name,
@@ -134,6 +274,7 @@ def main():
         'prompt_levels': prompt_levels,
         'color_levels': color_levels,
         'split': split,
+        'max_samples_per_dir': max_samples_per_dir if max_samples_per_dir is not None else 'None (full data)',
         'negative_prompt': negative_prompt,
         'width': width,
         'height': height,
@@ -143,17 +284,6 @@ def main():
         'batch_size': batch_size,
     }
     
-    os.makedirs(output_dir, exist_ok=True)
-    
-    distributed_state = PartialState()
-    
-    # Main process saves configuration
-    if distributed_state.is_main_process:
-        print("Scanning prompts...")
-    
-    # Scan all prompts
-    prompt_data = scan_test_prompts(base_dir, prompt_levels, color_levels, split)
-    
     # Filter out already generated
     pending_data = []
     for item in prompt_data:
@@ -161,7 +291,8 @@ def main():
             pending_data.append(item)
     
     if distributed_state.is_main_process:
-        print(f"Total prompts found: {len(prompt_data)}")
+        print(f"Output directory: {output_dir}")
+        print(f"Total prompts in sample list: {len(prompt_data)}")
         print(f"Already generated: {len(prompt_data) - len(pending_data)}")
         print(f"Pending generation: {len(pending_data)}")
         # Save configuration with total data count
@@ -264,7 +395,7 @@ def main():
         print(f"Total time: {total_time:.2f}s")
         print(f"Average per image: {total_time/len(prompts):.2f}s")
         print(f"All images saved to {output_dir}/")
-        print(f"Config saved to {output_dir}/generation_config.txt")
+        print(f"Sample list saved to {output_dir}/sample_list.json")
         print(f"{'='*50}")
 
 

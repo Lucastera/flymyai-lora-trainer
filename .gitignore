@@ -51,6 +51,7 @@ ckpts/
 *.jpeg
 *.gif
 *.webp
+*.zip
 !assets/*
 ColorBench-v1/
 test_lora_saves/
