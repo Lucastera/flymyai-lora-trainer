@@ -10,22 +10,22 @@ from datetime import datetime
 
 def scan_test_prompts(base_dir, prompt_levels, color_levels, split='test'):
     """
-    根据指定的等级扫描 txt 文件
+    Scan txt files according to specified levels
     
-    参数：
-      base_dir: 基础目录 "ColorBench-v1/Color_Split_Sets1"
-      prompt_levels: [1, 2, 3] 或 [1, 3] 等
-      color_levels: [1, 2, 3] 或 [2] 等
+    Args:
+      base_dir: Base directory "ColorBench-v1/Color_Split_Sets1"
+      prompt_levels: [1, 2, 3] or [1, 3] etc.
+      color_levels: [1, 2, 3] or [2] etc.
       split: 'train' / 'val' / 'test'
       
-    返回：
-      [(txt绝对路径, prompt内容, 相对路径), ...]
+    Returns:
+      [(txt absolute path, prompt content, relative path), ...]
     """
     prompt_data = []
     
     for p_level in prompt_levels:
         for c_level in color_levels:
-            # 构建目录路径
+            # Construct directory path
             dir_path = os.path.join(
                 base_dir, 
                 f"Prompt_Level_{p_level}", 
@@ -33,18 +33,18 @@ def scan_test_prompts(base_dir, prompt_levels, color_levels, split='test'):
                 split
             )
             
-            # 如果目录不存在，跳过
+            # Skip if directory does not exist
             if not os.path.exists(dir_path):
                 print(f"Warning: Directory not found, skipping: {dir_path}")
                 continue
             
-            # 扫描该目录下的所有 .txt 文件
+            # Scan all .txt files in the directory
             for root, dirs, files in os.walk(dir_path):
                 for file in files:
                     if file.endswith('.txt'):
                         txt_path = os.path.join(root, file)
                         
-                        # 读取 prompt
+                        # Read prompt
                         try:
                             with open(txt_path, 'r', encoding='utf-8') as f:
                                 prompt = f.read().strip()
@@ -52,7 +52,7 @@ def scan_test_prompts(base_dir, prompt_levels, color_levels, split='test'):
                             print(f"Warning: Failed to read {txt_path}, skipping. Error: {e}")
                             continue
                         
-                        # 计算相对路径（相对于 base_dir）
+                        # Calculate relative path (relative to base_dir)
                         relative_path = os.path.relpath(txt_path, base_dir)
                         
                         prompt_data.append((txt_path, prompt, relative_path))
@@ -62,30 +62,30 @@ def scan_test_prompts(base_dir, prompt_levels, color_levels, split='test'):
 
 def path_to_filename(relative_path):
     """
-    将文件相对路径转换为安全的输出文件名
+    Convert file relative path to safe output filename
     
-    参数：
+    Args:
       relative_path: "Prompt_Level_1/Color_Level_1/test/img_001.txt"
       
-    返回：
+    Returns:
       "Prompt_Level_1_Color_Level_1_test_img_001"
     """
-    # 去掉 .txt 扩展名
+    # Remove .txt extension
     name = os.path.splitext(relative_path)[0]
-    # 将路径分隔符替换为下划线
+    # Replace path separators with underscores
     name = name.replace(os.sep, '_').replace('/', '_').replace('\\', '_')
     return name
 
 
 def check_already_generated(output_dir, relative_path):
     """
-    检查图片是否已经生成
+    Check if image has already been generated
     
-    参数：
-      output_dir: 输出目录
-      relative_path: 相对路径 "Prompt_Level_1/Color_Level_1/test/img_001.txt"
+    Args:
+      output_dir: Output directory
+      relative_path: Relative path "Prompt_Level_1/Color_Level_1/test/img_001.txt"
       
-    返回：
+    Returns:
       True/False
     """
     safe_name = path_to_filename(relative_path)
@@ -94,7 +94,7 @@ def check_already_generated(output_dir, relative_path):
 
 
 def save_config(output_dir, config, total_prompts):
-    """保存配置到文件"""
+    """Save configuration to file"""
     config_path = os.path.join(output_dir, "generation_config.txt")
     with open(config_path, 'w', encoding='utf-8') as f:
         f.write(f"Generation Config - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -105,18 +105,18 @@ def save_config(output_dir, config, total_prompts):
 
 
 def main():
-    # ===== 配置参数 =====
+    # ===== Configuration Parameters =====
     model_name = "Qwen/Qwen-Image"
     lora_weights = ""
     output_dir = "outputs"
     
-    # 数据集配置
+    # Dataset configuration
     base_dir = "ColorBench-v1/Test_Sets"
     prompt_levels = [1]
     color_levels = [1]
     split = 'test'
     
-    # 生成参数
+    # Generation parameters
     negative_prompt = " "
     width = 384
     height = 384
@@ -125,7 +125,7 @@ def main():
     base_seed = 42
     batch_size = 8
     
-    # 保存配置
+    # Save configuration
     config = {
         'model_name': model_name,
         'lora_weights': lora_weights if lora_weights else 'None',
@@ -147,14 +147,14 @@ def main():
     
     distributed_state = PartialState()
     
-    # 主进程保存配置
+    # Main process saves configuration
     if distributed_state.is_main_process:
         print("Scanning prompts...")
     
-    # 扫描所有 prompt
+    # Scan all prompts
     prompt_data = scan_test_prompts(base_dir, prompt_levels, color_levels, split)
     
-    # 过滤掉已生成的
+    # Filter out already generated
     pending_data = []
     for item in prompt_data:
         if not check_already_generated(output_dir, item[2]):
@@ -164,16 +164,16 @@ def main():
         print(f"Total prompts found: {len(prompt_data)}")
         print(f"Already generated: {len(prompt_data) - len(pending_data)}")
         print(f"Pending generation: {len(pending_data)}")
-        # 保存配置，包含总数据量
+        # Save configuration with total data count
         save_config(output_dir, config, len(prompt_data))
     
-    # 如果全部已生成，直接退出
+    # Exit directly if all images are already generated
     if len(pending_data) == 0:
         if distributed_state.is_main_process:
             print("All images already generated. Exiting.")
         return
     
-    # 构建待处理列表
+    # Build list of pending items
     prompts = [item[1] for item in pending_data]
     relative_paths = [item[2] for item in pending_data]
 
@@ -208,7 +208,7 @@ def main():
 
     task_indices = list(range(len(prompts)))
 
-    # 计时开始
+    # Start timing
     distributed_state.wait_for_everyone()
     start_time = time.time()
 
@@ -216,7 +216,7 @@ def main():
         local_indices = list(local_indices)
         local_start = time.time()
 
-        # 添加进度条
+        # Add progress bar
         pbar = tqdm(
             range(0, len(local_indices), batch_size),
             desc=f"GPU {distributed_state.process_index}",
