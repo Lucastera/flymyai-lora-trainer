@@ -5,31 +5,182 @@ from tqdm.auto import tqdm
 from accelerate import PartialState
 import os
 import time
+from datetime import datetime
+
+
+def scan_test_prompts(base_dir, prompt_levels, color_levels, split='test'):
+    """
+    根据指定的等级扫描 txt 文件
+    
+    参数：
+      base_dir: 基础目录 "ColorBench-v1/Color_Split_Sets1"
+      prompt_levels: [1, 2, 3] 或 [1, 3] 等
+      color_levels: [1, 2, 3] 或 [2] 等
+      split: 'train' / 'val' / 'test'
+      
+    返回：
+      [(txt绝对路径, prompt内容, 相对路径), ...]
+    """
+    prompt_data = []
+    
+    for p_level in prompt_levels:
+        for c_level in color_levels:
+            # 构建目录路径
+            dir_path = os.path.join(
+                base_dir, 
+                f"Prompt_Level_{p_level}", 
+                f"Color_Level_{c_level}", 
+                split
+            )
+            
+            # 如果目录不存在，跳过
+            if not os.path.exists(dir_path):
+                print(f"Warning: Directory not found, skipping: {dir_path}")
+                continue
+            
+            # 扫描该目录下的所有 .txt 文件
+            for root, dirs, files in os.walk(dir_path):
+                for file in files:
+                    if file.endswith('.txt'):
+                        txt_path = os.path.join(root, file)
+                        
+                        # 读取 prompt
+                        try:
+                            with open(txt_path, 'r', encoding='utf-8') as f:
+                                prompt = f.read().strip()
+                        except Exception as e:
+                            print(f"Warning: Failed to read {txt_path}, skipping. Error: {e}")
+                            continue
+                        
+                        # 计算相对路径（相对于 base_dir）
+                        relative_path = os.path.relpath(txt_path, base_dir)
+                        
+                        prompt_data.append((txt_path, prompt, relative_path))
+    
+    return prompt_data
+
+
+def path_to_filename(relative_path):
+    """
+    将文件相对路径转换为安全的输出文件名
+    
+    参数：
+      relative_path: "Prompt_Level_1/Color_Level_1/test/img_001.txt"
+      
+    返回：
+      "Prompt_Level_1_Color_Level_1_test_img_001"
+    """
+    # 去掉 .txt 扩展名
+    name = os.path.splitext(relative_path)[0]
+    # 将路径分隔符替换为下划线
+    name = name.replace(os.sep, '_').replace('/', '_').replace('\\', '_')
+    return name
+
+
+def check_already_generated(output_dir, relative_path):
+    """
+    检查图片是否已经生成
+    
+    参数：
+      output_dir: 输出目录
+      relative_path: 相对路径 "Prompt_Level_1/Color_Level_1/test/img_001.txt"
+      
+    返回：
+      True/False
+    """
+    safe_name = path_to_filename(relative_path)
+    output_path = os.path.join(output_dir, f"{safe_name}_gen.png")
+    return os.path.exists(output_path)
+
+
+def save_config(output_dir, config, total_prompts):
+    """保存配置到文件"""
+    config_path = os.path.join(output_dir, "generation_config.txt")
+    with open(config_path, 'w', encoding='utf-8') as f:
+        f.write(f"Generation Config - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write("="*50 + "\n")
+        f.write(f"total_data: {total_prompts}\n")
+        for key, value in config.items():
+            f.write(f"{key}: {value}\n")
+
 
 def main():
+    # ===== 配置参数 =====
     model_name = "Qwen/Qwen-Image"
-    lora_weights = "./test_lora_saves/checkpoint-10"
+    lora_weights = ""
     output_dir = "outputs"
+    
+    # 数据集配置
+    base_dir = "ColorBench-v1/Test_Sets"
+    prompt_levels = [1]
+    color_levels = [1]
+    split = 'test'
+    
+    # 生成参数
     negative_prompt = " "
     width = 384
     height = 384
     num_inference_steps = 50
     true_cfg_scale = 5.0
-    base_seed = 655
-    batch_size = 64  # 改大试试
-    num_images = 12
-
-    # 全部用同一个 prompt 方便测试质量
-    prompts = ["man in the city"] * num_images
-
+    base_seed = 42
+    batch_size = 8
+    
+    # 保存配置
+    config = {
+        'model_name': model_name,
+        'lora_weights': lora_weights if lora_weights else 'None',
+        'output_dir': output_dir,
+        'base_dir': base_dir,
+        'prompt_levels': prompt_levels,
+        'color_levels': color_levels,
+        'split': split,
+        'negative_prompt': negative_prompt,
+        'width': width,
+        'height': height,
+        'num_inference_steps': num_inference_steps,
+        'true_cfg_scale': true_cfg_scale,
+        'base_seed': base_seed,
+        'batch_size': batch_size,
+    }
+    
     os.makedirs(output_dir, exist_ok=True)
-
+    
     distributed_state = PartialState()
+    
+    # 主进程保存配置
+    if distributed_state.is_main_process:
+        print("Scanning prompts...")
+    
+    # 扫描所有 prompt
+    prompt_data = scan_test_prompts(base_dir, prompt_levels, color_levels, split)
+    
+    # 过滤掉已生成的
+    pending_data = []
+    for item in prompt_data:
+        if not check_already_generated(output_dir, item[2]):
+            pending_data.append(item)
+    
+    if distributed_state.is_main_process:
+        print(f"Total prompts found: {len(prompt_data)}")
+        print(f"Already generated: {len(prompt_data) - len(pending_data)}")
+        print(f"Pending generation: {len(pending_data)}")
+        # 保存配置，包含总数据量
+        save_config(output_dir, config, len(prompt_data))
+    
+    # 如果全部已生成，直接退出
+    if len(pending_data) == 0:
+        if distributed_state.is_main_process:
+            print("All images already generated. Exiting.")
+        return
+    
+    # 构建待处理列表
+    prompts = [item[1] for item in pending_data]
+    relative_paths = [item[2] for item in pending_data]
+
     torch_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
 
     if distributed_state.is_main_process:
         print(f"Using {distributed_state.num_processes} GPUs")
-        print(f"Total images: {len(prompts)}")
         print(f"Batch size: {batch_size}")
 
     pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
@@ -65,7 +216,14 @@ def main():
         local_indices = list(local_indices)
         local_start = time.time()
 
-        for i in range(0, len(local_indices), batch_size):
+        # 添加进度条
+        pbar = tqdm(
+            range(0, len(local_indices), batch_size),
+            desc=f"GPU {distributed_state.process_index}",
+            disable=not distributed_state.is_local_main_process
+        )
+
+        for i in pbar:
             batch_start = time.time()
             batch_indices = local_indices[i:i+batch_size]
             batch_prompts = [prompts[idx] for idx in batch_indices]
@@ -73,8 +231,6 @@ def main():
 
             seed = base_seed + batch_indices[0]
             generator = torch.Generator(device="cpu").manual_seed(seed)
-
-            print(f"[GPU {distributed_state.process_index}] Generating batch: {batch_indices}")
 
             images = pipe(
                 prompt=batch_prompts,
@@ -89,10 +245,11 @@ def main():
             batch_time = time.time() - batch_start
 
             for j, idx in enumerate(batch_indices):
-                output_path = os.path.join(output_dir, f"image_{idx:03d}.png")
+                safe_name = path_to_filename(relative_paths[idx])
+                output_path = os.path.join(output_dir, f"{safe_name}_gen.png")
                 images[j].save(output_path)
 
-            print(f"[GPU {distributed_state.process_index}] Batch {batch_indices} done in {batch_time:.2f}s ({batch_time/len(batch_indices):.2f}s per image)")
+            pbar.set_postfix({'batch_time': f'{batch_time:.2f}s', 'per_img': f'{batch_time/len(batch_indices):.2f}s'})
 
         local_time = time.time() - local_start
         print(f"[GPU {distributed_state.process_index}] Total local time: {local_time:.2f}s")
@@ -102,12 +259,14 @@ def main():
 
     if distributed_state.is_main_process:
         print(f"\n{'='*50}")
-        print(f"Total images: {len(prompts)}")
+        print(f"Total images generated: {len(prompts)}")
         print(f"Batch size: {batch_size}")
         print(f"Total time: {total_time:.2f}s")
         print(f"Average per image: {total_time/len(prompts):.2f}s")
         print(f"All images saved to {output_dir}/")
+        print(f"Config saved to {output_dir}/generation_config.txt")
         print(f"{'='*50}")
+
 
 if __name__ == "__main__":
     main()
