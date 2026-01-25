@@ -1,8 +1,8 @@
 pretrained_model_name_or_path: Qwen/Qwen-Image
 data_config:
   base_dir: ./ColorBench-v1/Finetune_Level1_Sets
-  prompt_levels: [1]
-  color_levels: [1]
+  prompt_levels: [1, 2, 3]
+  color_levels: [1, 2, 3]
   split: train
   train_batch_size: 8
   num_workers: 4
@@ -12,9 +12,9 @@ data_config:
   caption_type: txt
 report_to: wandb
 train_batch_size: 8
-output_dir: ./test_lora_saves
-max_train_steps: 10
-learning_rate: 3e-4
+output_dir: ./lora_saves_qwen_finetune
+max_train_steps: 3000
+learning_rate: 1e-5
 lr_scheduler: constant
 lr_warmup_steps: 0
 adam_beta1: 0.9
@@ -24,8 +24,8 @@ adam_epsilon: 1e-8
 max_grad_norm: 1.0
 logging_dir: logs
 mixed_precision: "bf16"
-checkpointing_steps: 5
-checkpoints_total_limit: 10
+checkpointing_steps: 100
+checkpoints_total_limit: 100
 tracker_project_name: qwen_image_lora
 resume_from_checkpoint: latest
 gradient_accumulation_steps: 1

@@ -55,11 +55,20 @@ def crop_to_aspect_ratio(image, ratio="16:9"):
     return cropped_img
 
 
+def path_to_key(path):
+    """将路径转换为缓存key，用下划线替换路径分隔符"""
+    return path.replace('/', '_').replace('\\', '_')
+
+
 class CustomImageDataset(Dataset):
-    def __init__(self, img_dir, img_size=512, caption_type='txt',
+    def __init__(self, img_dir=None, img_size=512, caption_type='txt',
                  random_ratio=False, caption_dropout_rate=0.1, cached_text_embeddings=None,
-                 cached_image_embeddings=None, txt_cache_dir=None, img_cache_dir=None):
-        self.images = [os.path.join(img_dir, i) for i in os.listdir(img_dir) if '.jpg' in i or '.png' in i]
+                 cached_image_embeddings=None, txt_cache_dir=None, img_cache_dir=None,
+                 file_list=None, **kwargs):
+        if file_list is not None:
+            self.images = file_list
+        else:
+            self.images = [os.path.join(img_dir, i) for i in os.listdir(img_dir) if '.jpg' in i or '.png' in i]
         self.images.sort()
         self.img_size = img_size
         self.caption_type = caption_type
@@ -77,8 +86,11 @@ class CustomImageDataset(Dataset):
     def __getitem__(self, idx):
         try:
             idx = random.randint(0, len(self.images) - 1)
+            img_path = self.images[idx]
+            img_key = path_to_key(img_path)
+            
             if self.cached_image_embeddings is None and self.img_cache_dir is None:
-                img = Image.open(self.images[idx]).convert('RGB')
+                img = Image.open(img_path).convert('RGB')
                 if self.random_ratio:
                     ratio = random.choice(["16:9", "default", "1:1", "4:3"])
                     if ratio != "default":
@@ -91,10 +103,13 @@ class CustomImageDataset(Dataset):
                 img = torch.from_numpy((np.array(img) / 127.5) - 1)
                 img = img.permute(2, 0, 1)
             elif self.img_cache_dir is not None:
-                img = torch.load(os.path.join(self.img_cache_dir, self.images[idx].split('/')[-1] + '.pt'))
+                img = torch.load(os.path.join(self.img_cache_dir, img_key + '.pt'))
             else:
-                img = self.cached_image_embeddings[self.images[idx].split('/')[-1]]
-            txt_path = self.images[idx].rsplit('.', 1)[0] + '.' + self.caption_type
+                img = self.cached_image_embeddings[img_key]
+            
+            txt_path = img_path.rsplit('.', 1)[0] + '.' + self.caption_type
+            txt_key = path_to_key(txt_path)
+            
             if self.cached_text_embeddings is None and self.txt_cache_dir is None:
                 prompt = open(txt_path, encoding='utf-8').read()
                 if throw_one(self.caption_dropout_rate):
@@ -103,20 +118,16 @@ class CustomImageDataset(Dataset):
                     return img, prompt
             elif self.txt_cache_dir is not None:
                 if throw_one(self.caption_dropout_rate):
-                    txt_path = os.path.join(self.txt_cache_dir, 'empty_embedding.pt')
-                    txt_embs = torch.load(txt_path)
+                    txt_embs = torch.load(os.path.join(self.txt_cache_dir, 'empty_embedding.pt'))
                     return img, txt_embs['prompt_embeds'], txt_embs['prompt_embeds_mask']
                 else:
-                    txt_path = os.path.join(self.txt_cache_dir, txt_path.split('/')[-1] + '.pt')
-                    txt_embs = torch.load(txt_path)
-
+                    txt_embs = torch.load(os.path.join(self.txt_cache_dir, txt_key + '.pt'))
                     return img, txt_embs['prompt_embeds'], txt_embs['prompt_embeds_mask']
             else:
-                txt = txt_path.split('/')[-1]
                 if throw_one(self.caption_dropout_rate):
                     return img, self.cached_text_embeddings['empty_embedding']['prompt_embeds'], self.cached_text_embeddings['empty_embedding']['prompt_embeds_mask']
                 else:
-                    return img, self.cached_text_embeddings[txt]['prompt_embeds'], self.cached_text_embeddings[txt]['prompt_embeds_mask']
+                    return img, self.cached_text_embeddings[txt_key]['prompt_embeds'], self.cached_text_embeddings[txt_key]['prompt_embeds_mask']
         except Exception as e:
             print(e)
             return self.__getitem__(random.randint(0, len(self.images) - 1))
