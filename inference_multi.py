@@ -208,12 +208,12 @@ def main():
     
     # Dataset configuration
     base_dir = "ColorBench-v1/Test_Sets"
-    prompt_levels = [1, 2]
-    color_levels = [3]
+    prompt_levels = [4, 5, 6]
+    color_levels = [1, 2, 3]
     split = 'test'
     
     # Sampling configuration (None means no limit)
-    max_samples_per_dir = 1000
+    max_samples_per_dir = None
     
     # Generation parameters
     negative_prompt = " "
@@ -222,7 +222,7 @@ def main():
     num_inference_steps = 50
     true_cfg_scale = 5.0
     base_seed = 42
-    batch_size = 8
+    batch_size = 64
     
     # Auto-generate output directory name
     output_dir = generate_output_dir_name(
