@@ -1,8 +1,8 @@
-pretrained_model_name_or_path: Qwen/Qwen-Image
+pretrained_model_name_or_path: black-forest-labs/FLUX.1-dev
 data_config:
   base_dir: ./ColorBench-v1/Finetune_Level1_Sets
-  prompt_levels: [1, 2, 3]
-  color_levels: [1, 2, 3]
+  prompt_levels: [1]
+  color_levels: [1]
   split: train
   train_batch_size: 8
   num_workers: 4
@@ -12,9 +12,9 @@ data_config:
   caption_type: txt
 report_to: wandb
 train_batch_size: 8
-output_dir: ./lora_saves_qwen_finetune
-max_train_steps: 3000
-learning_rate: 3e-4
+output_dir: ./lora_saves_flux_test # 待修改
+max_train_steps: 10 # 待修改
+learning_rate: 5e-4
 lr_scheduler: constant
 lr_warmup_steps: 0
 adam_beta1: 0.9
@@ -24,16 +24,12 @@ adam_epsilon: 1e-8
 max_grad_norm: 1.0
 logging_dir: logs
 mixed_precision: "bf16"
-checkpointing_steps: 100
-checkpoints_total_limit: 100
-tracker_project_name: qwen_image_lora
+checkpointing_steps: 5 # 待修改
+checkpoints_total_limit: 10 # 待修改
+tracker_project_name: flux_lora
+run_name: "flux_lora_coloring"
 resume_from_checkpoint: latest
 gradient_accumulation_steps: 1
 lora_rank: 16
 lora_alpha: 32
 lora_dropout: 0.1
-precompute_text_embeddings: true
-precompute_image_embeddings: true
-quantize: true
-adam8bit: true
-save_cache_on_disk: true

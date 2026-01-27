@@ -221,18 +221,18 @@ def save_config(output_dir, config, total_prompts):
 
 def main():
     # ===== Configuration Parameters =====
-    # level1 experiment settings !!
-    model_name = "Qwen/Qwen-Image"
-    lora_weights = "lora_saves_level_1/checkpoint-3000/pytorch_lora_weights.safetensors"
+    # flux settings !!
+    model_name = "black-forest-labs/FLUX.1-dev"
+    lora_weights = ""
     
     # Dataset configuration
-    base_dir = "ColorBench-v1/Finetune_LevelALL_Sets"
+    base_dir = "ColorBench-v1/Test_Sets"
     prompt_levels = [1]
-    color_levels = [1, 2, 3]
+    color_levels = [1]
     split = 'test'
     
     # Sampling configuration (None means no limit)
-    max_samples_per_dir = None
+    max_samples_per_dir = 64
     
     # Generation parameters
     negative_prompt = " "
@@ -241,7 +241,7 @@ def main():
     num_inference_steps = 50
     true_cfg_scale = 5.0
     base_seed = 42
-    batch_size = 64
+    batch_size = 32
     
     # Auto-generate output directory name
     output_dir = generate_output_dir_name(

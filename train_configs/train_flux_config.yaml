@@ -1,19 +1,19 @@
 pretrained_model_name_or_path: black-forest-labs/FLUX.1-dev
 data_config:
-  train_batch_size: 1
+  train_batch_size: 8
   num_workers: 4
-  img_size: 1024
-  caption_dropout_rate: 0
-  img_dir: ./test_dataset
+  img_size: 384
+  caption_dropout_rate: 0.1
+  img_dir: ./ColorBench-v1/Finetune_Level1_Sets/Prompt_Level_1/Color_Level_1/train
   random_ratio: false # support multi crop preprocessing
   caption_type: txt
 report_to: null
-train_batch_size: 1
-output_dir: ./test_lora_saves
-max_train_steps: 200
+train_batch_size: 8
+output_dir: ./lora_saves_flux_test
+max_train_steps: 10
 learning_rate: 5e-4
 lr_scheduler: constant
-lr_warmup_steps: 10
+lr_warmup_steps: 0
 adam_beta1: 0.9
 adam_beta2: 0.999
 adam_weight_decay: 0.01
@@ -21,11 +21,11 @@ adam_epsilon: 1e-8
 max_grad_norm: 1.0
 logging_dir: logs
 mixed_precision: "bf16"
-checkpointing_steps: 25
+checkpointing_steps: 5
 checkpoints_total_limit: 10
 tracker_project_name: lora_test
 resume_from_checkpoint: latest
-gradient_accumulation_steps: 8
+gradient_accumulation_steps: 1
 rank: 16
 double_blocks: null
 disable_sampling: true

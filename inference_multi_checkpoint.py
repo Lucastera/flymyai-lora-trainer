@@ -208,6 +208,39 @@ def check_already_generated(output_dir, relative_path):
     return os.path.exists(output_path)
 
 
+def is_checkpoint_complete(output_dir):
+    """
+    Check if all images for a checkpoint have been generated
+    
+    Args:
+      output_dir: Output directory
+      
+    Returns:
+      True if complete, False otherwise
+    """
+    list_file = os.path.join(output_dir, "sample_list.json")
+    
+    # If sample list doesn't exist, not complete
+    if not os.path.exists(list_file):
+        return False
+    
+    try:
+        with open(list_file, 'r', encoding='utf-8') as f:
+            saved_data = json.load(f)
+        
+        total_samples = len(saved_data['samples'])
+        
+        # Count generated images
+        generated_count = 0
+        for item in saved_data['samples']:
+            if check_already_generated(output_dir, item['relative_path']):
+                generated_count += 1
+        
+        return generated_count >= total_samples
+    except Exception as e:
+        return False
+
+
 def save_config(output_dir, config, total_prompts):
     """Save configuration to file"""
     config_path = os.path.join(output_dir, "generation_config.txt")
@@ -219,39 +252,15 @@ def save_config(output_dir, config, total_prompts):
             f.write(f"{key}: {value}\n")
 
 
-def main():
-    # ===== Configuration Parameters =====
-    # level1 experiment settings !!
-    model_name = "Qwen/Qwen-Image"
-    lora_weights = "lora_saves_level_1/checkpoint-3000/pytorch_lora_weights.safetensors"
-    
-    # Dataset configuration
-    base_dir = "ColorBench-v1/Finetune_LevelALL_Sets"
-    prompt_levels = [1]
-    color_levels = [1, 2, 3]
-    split = 'test'
-    
-    # Sampling configuration (None means no limit)
-    max_samples_per_dir = None
-    
-    # Generation parameters
-    negative_prompt = " "
-    width = 384
-    height = 384
-    num_inference_steps = 50
-    true_cfg_scale = 5.0
-    base_seed = 42
-    batch_size = 64
-    
-    # Auto-generate output directory name
-    output_dir = generate_output_dir_name(
-        model_name, prompt_levels, color_levels, split, 
-        max_samples_per_dir, lora_weights
-    )
+def generate_for_checkpoint(checkpoint_num, lora_weights, output_dir, distributed_state, 
+                            model_name, base_dir, prompt_levels, color_levels, split,
+                            max_samples_per_dir, negative_prompt, width, height,
+                            num_inference_steps, true_cfg_scale, base_seed, batch_size):
+    """
+    Generate images for a single checkpoint
+    """
     
     os.makedirs(output_dir, exist_ok=True)
-    
-    distributed_state = PartialState()
     
     # Main process creates or loads sample list
     if distributed_state.is_main_process:
@@ -288,6 +297,7 @@ def main():
     config = {
         'model_name': model_name,
         'lora_weights': lora_weights if lora_weights else 'None',
+        'checkpoint_num': checkpoint_num,
         'output_dir': output_dir,
         'base_dir': base_dir,
         'prompt_levels': prompt_levels,
@@ -320,7 +330,7 @@ def main():
     # Exit directly if all images are already generated
     if len(pending_data) == 0:
         if distributed_state.is_main_process:
-            print("All images already generated. Exiting.")
+            print("All images already generated for this checkpoint.")
         return
     
     # Build list of pending items
@@ -332,6 +342,7 @@ def main():
     if distributed_state.is_main_process:
         print(f"Using {distributed_state.num_processes} GPUs")
         print(f"Batch size: {batch_size}")
+        print(f"Loading model and LoRA weights...")
 
     pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
 
@@ -409,13 +420,110 @@ def main():
 
     if distributed_state.is_main_process:
         print(f"\n{'='*50}")
+        print(f"Checkpoint {checkpoint_num} complete!")
         print(f"Total images generated: {len(prompts)}")
-        print(f"Batch size: {batch_size}")
         print(f"Total time: {total_time:.2f}s")
         print(f"Average per image: {total_time/len(prompts):.2f}s")
-        print(f"All images saved to {output_dir}/")
-        print(f"Sample list saved to {output_dir}/sample_list.json")
-        print(f"{'='*50}")
+        print(f"{'='*50}\n")
+    
+    # Clean up to free memory
+    del pipe
+    torch.cuda.empty_cache()
+
+
+def main():
+    # ===== Configuration Parameters =====
+    model_name = "Qwen/Qwen-Image"
+    
+    # LoRA checkpoint configuration
+    lora_base_dir = "lora_saves_color_split_sets1"
+    checkpoint_list = list(range(100, 3100, 100))  # [100, 200, 300, ..., 3000]
+    
+    # Dataset configuration
+    base_dir = "ColorBench-v1/Color_Split_Sets1"
+    prompt_levels = [1, 2, 3]
+    color_levels = [1, 2, 3]
+    split = 'test'
+    
+    # Sampling configuration (None means no limit)
+    max_samples_per_dir = None
+    
+    # Generation parameters
+    negative_prompt = " "
+    width = 384
+    height = 384
+    num_inference_steps = 50
+    true_cfg_scale = 5.0
+    base_seed = 42
+    batch_size = 64
+    
+    # Initialize distributed state once
+    distributed_state = PartialState()
+    
+    if distributed_state.is_main_process:
+        print(f"{'='*60}")
+        print(f"Starting multi-checkpoint generation")
+        print(f"Checkpoints to process: {checkpoint_list}")
+        print(f"Total checkpoints: {len(checkpoint_list)}")
+        print(f"{'='*60}\n")
+    
+    # Loop through all checkpoints
+    for ckpt_num in checkpoint_list:
+        lora_weights = f"{lora_base_dir}/checkpoint-{ckpt_num}/pytorch_lora_weights.safetensors"
+        
+        # Generate output directory name
+        output_dir = generate_output_dir_name(
+            model_name, prompt_levels, color_levels, split, 
+            max_samples_per_dir, lora_weights
+        )
+        
+        if distributed_state.is_main_process:
+            print(f"\n{'#'*60}")
+            print(f"Processing checkpoint-{ckpt_num}")
+            print(f"LoRA weights: {lora_weights}")
+            print(f"Output dir: {output_dir}")
+            print(f"{'#'*60}")
+        
+        # Check if this checkpoint is already complete
+        if is_checkpoint_complete(output_dir):
+            if distributed_state.is_main_process:
+                print(f"Checkpoint-{ckpt_num} already complete, skipping...")
+            continue
+        
+        # Check if LoRA weights file exists
+        if not os.path.exists(lora_weights):
+            if distributed_state.is_main_process:
+                print(f"Warning: LoRA weights not found: {lora_weights}, skipping...")
+            continue
+        
+        # Generate for this checkpoint
+        generate_for_checkpoint(
+            checkpoint_num=ckpt_num,
+            lora_weights=lora_weights,
+            output_dir=output_dir,
+            distributed_state=distributed_state,
+            model_name=model_name,
+            base_dir=base_dir,
+            prompt_levels=prompt_levels,
+            color_levels=color_levels,
+            split=split,
+            max_samples_per_dir=max_samples_per_dir,
+            negative_prompt=negative_prompt,
+            width=width,
+            height=height,
+            num_inference_steps=num_inference_steps,
+            true_cfg_scale=true_cfg_scale,
+            base_seed=base_seed,
+            batch_size=batch_size
+        )
+        
+        # Sync before next checkpoint
+        distributed_state.wait_for_everyone()
+    
+    if distributed_state.is_main_process:
+        print(f"\n{'='*60}")
+        print("All checkpoints processed!")
+        print(f"{'='*60}")
 
 
 if __name__ == "__main__":

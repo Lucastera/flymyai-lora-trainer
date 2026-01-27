@@ -42,6 +42,8 @@ from diffusers.training_utils import (
 from image_datasets.dataset import loader
 logger = get_logger(__name__, log_level="INFO")
 from diffusers import FluxPipeline
+import wandb
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Simple example of a training script.")
@@ -54,8 +56,35 @@ def parse_args():
     )
     args = parser.parse_args()
 
-
     return args.config
+
+
+def get_train_dirs(data_config):
+    """Get all training data directories based on config."""
+    train_dirs = []
+    base_dir = data_config.base_dir
+    prompt_levels = data_config.prompt_levels
+    color_levels = data_config.color_levels
+    split = data_config.split
+    
+    for p_level in prompt_levels:
+        for c_level in color_levels:
+            dir_path = os.path.join(base_dir, f"Prompt_Level_{p_level}", f"Color_Level_{c_level}", split)
+            if os.path.exists(dir_path) and os.listdir(dir_path):
+                train_dirs.append(dir_path)
+    
+    return train_dirs
+
+
+def collect_files(train_dirs):
+    """Collect all image files from training directories."""
+    all_images = []
+    
+    for dir_path in train_dirs:
+        images = [os.path.join(dir_path, f) for f in os.listdir(dir_path) if f.endswith('.png') or f.endswith('.jpg')]
+        all_images.extend(images)
+    
+    return all_images
 
 
 def main():
@@ -69,8 +98,15 @@ def main():
         mixed_precision=args.mixed_precision,
         log_with=args.report_to,
         project_config=accelerator_project_config,
-        #dynamo_plugin=dynamo_plugin
     )
+    
+    # Get training directories and files
+    train_dirs = get_train_dirs(args.data_config)
+    all_images = collect_files(train_dirs)
+    
+    logger.info(f"Found {len(train_dirs)} training directories")
+    logger.info(f"Found {len(all_images)} training samples")
+    
     def unwrap_model(model):
         model = accelerator.unwrap_model(model)
         model = model._orig_mod if is_compiled_module(model) else model
@@ -96,6 +132,53 @@ def main():
     if accelerator.is_main_process:
         if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Initialize wandb early with full config
+    if accelerator.is_main_process:
+        wandb_config = {
+            # Model config
+            "model": args.pretrained_model_name_or_path,
+            "lora_rank": args.lora_rank,
+            "lora_alpha": args.lora_alpha,
+            "lora_dropout": args.lora_dropout,
+            
+            # Training config
+            "learning_rate": args.learning_rate,
+            "train_batch_size": args.train_batch_size,
+            "max_train_steps": args.max_train_steps,
+            "gradient_accumulation_steps": args.gradient_accumulation_steps,
+            "mixed_precision": args.mixed_precision,
+            "lr_scheduler": args.lr_scheduler,
+            "lr_warmup_steps": args.lr_warmup_steps,
+            "max_grad_norm": args.max_grad_norm,
+            
+            # Optimizer config
+            "adam_beta1": args.adam_beta1,
+            "adam_beta2": args.adam_beta2,
+            "adam_weight_decay": args.adam_weight_decay,
+            "adam_epsilon": args.adam_epsilon,
+            
+            # Data config
+            "base_dir": args.data_config.base_dir,
+            "prompt_levels": list(args.data_config.prompt_levels),
+            "color_levels": list(args.data_config.color_levels),
+            "split": args.data_config.split,
+            "img_size": args.data_config.img_size,
+            "num_train_dirs": len(train_dirs),
+            "num_train_samples": len(all_images),
+            
+            # Checkpointing
+            "checkpointing_steps": args.checkpointing_steps,
+            "checkpoints_total_limit": args.checkpoints_total_limit,
+        }
+        
+        accelerator.init_trackers(
+            args.tracker_project_name,
+            config=wandb_config,
+            init_kwargs={"wandb": {"name": args.run_name}}
+        )
+        logger.info(f"Wandb initialized with project: {args.tracker_project_name}")
+
     weight_dtype = torch.float32
     if accelerator.mixed_precision == "fp16":
         weight_dtype = torch.float16
@@ -117,8 +200,9 @@ def main():
     quantize(flux_transformer, weights=qfloat8)
     freeze(flux_transformer)
     lora_config = LoraConfig(
-        r=args.rank,
-        lora_alpha=args.rank,
+        r=args.lora_rank,
+        lora_alpha=args.lora_alpha,
+        lora_dropout=args.lora_dropout,
         init_lora_weights="gaussian",
         target_modules=["to_k", "to_q", "to_v", "to_out.0"],
     )
@@ -154,7 +238,6 @@ def main():
     for n, param in flux_transformer.named_parameters():
         if 'lora' not in n:
             param.requires_grad = False
-            pass
         else:
             param.requires_grad = True
             print(n)
@@ -170,7 +253,11 @@ def main():
         eps=args.adam_epsilon,
     )
 
-    train_dataloader = loader(**args.data_config)    
+    # Pass file list to loader
+    train_dataloader = loader(
+        file_list=all_images,
+        **args.data_config
+    )
 
     lr_scheduler = get_scheduler(
         args.lr_scheduler,
@@ -184,11 +271,7 @@ def main():
         flux_transformer, optimizer, deepcopy(train_dataloader), lr_scheduler
     )
 
-
     initial_global_step = 0
-
-    if accelerator.is_main_process:
-        accelerator.init_trackers(args.tracker_project_name, {"test": None})
 
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
 
@@ -226,10 +309,8 @@ def main():
                 timesteps = noise_scheduler_copy.timesteps[indices].to(device=pixel_latents.device)
             sigmas = get_sigmas(timesteps, n_dim=pixel_latents.ndim, dtype=pixel_latents.dtype)
             noisy_model_input = (1.0 - sigmas) * pixel_latents + sigmas * noise
-            # Concatenate across channels.
-            # Question: Should we concatenate before adding noise?
 
-            # pack the latents.
+            # Pack the latents
             packed_noisy_model_input = FluxPipeline._pack_latents(
                 noisy_model_input,
                 batch_size=bsz,
@@ -238,7 +319,7 @@ def main():
                 width=noisy_model_input.shape[3],
             )
 
-            # latent image ids for RoPE.
+            # Latent image ids for RoPE
             latent_image_ids = FluxPipeline._prepare_latent_image_ids(
                 bsz,
                 noisy_model_input.shape[2] // 2,
@@ -274,14 +355,14 @@ def main():
             )
             weighting = compute_loss_weighting_for_sd3(weighting_scheme="none", sigmas=sigmas)
 
-            # flow-matching loss
+            # Flow-matching loss
             target = noise - pixel_latents
             loss = torch.mean(
                 (weighting.float() * (model_pred.float() - target.float()) ** 2).reshape(target.shape[0], -1),
                 1,
             )
             loss = loss.mean()
-            # Gather the losses across all processes for logging (if we use distributed training).
+            # Gather the losses across all processes for logging (if we use distributed training)
             avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
             train_loss += avg_loss.item() / args.gradient_accumulation_steps
 
@@ -297,18 +378,18 @@ def main():
         if accelerator.sync_gradients:
             progress_bar.update(1)
             global_step += 1
-            accelerator.log({"train_loss": train_loss}, step=global_step)
+            accelerator.log({"train_loss": train_loss, "lr": lr_scheduler.get_last_lr()[0]}, step=global_step)
             train_loss = 0.0
 
             if global_step % args.checkpointing_steps == 0:
                 if accelerator.is_main_process:
-                    # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
+                    # Before saving state, check if this save would set us over the checkpoints_total_limit
                     if args.checkpoints_total_limit is not None:
                         checkpoints = os.listdir(args.output_dir)
                         checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
                         checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
 
-                        # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
+                        # Before we save the new checkpoint, we need to have at most checkpoints_total_limit - 1 checkpoints
                         if len(checkpoints) >= args.checkpoints_total_limit:
                             num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
                             removing_checkpoints = checkpoints[0:num_to_remove]
@@ -324,7 +405,6 @@ def main():
 
                 save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
 
-                #accelerator.save_state(save_path)
                 try:
                     if not os.path.exists(save_path):
                         os.mkdir(save_path)
