@@ -58,3 +58,7 @@ test_lora_saves/
 wandb/
 lora_saves*/   
 outputs/
+main_picture.svg
+count_files.sh
+.gitignore
+qwen_image_lora_outputs.tar.gz
