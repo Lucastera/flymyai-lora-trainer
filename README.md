@@ -6,6 +6,16 @@ An open-source implementation for training LoRA (Low-Rank Adaptation) layers for
   <img src="./assets/flymy_transparent.png" alt="FlyMy.AI Logo" width="256">
 </p>
 
+## 📖 Documentation
+
+### 🇨🇳 Chinese Documentation (中文文档)
+- 📚 **[文档使用指南 (Documentation Guide)](./DOCUMENTATION_GUIDE_CN.md)** - 不知道该读哪份？看这里！
+- 📖 **[完整教程 (Complete Tutorial)](./TUTORIAL_CN.md)** - 从零开始的1200+行详细教程
+- 🚀 **[快速入门 (Quick Start)](./QUICKSTART_CN.md)** - 5分钟快速上手指南
+
+### 🇬🇧 English Documentation
+- 📄 **[README](./README.md)** - You are reading it
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=FlyMyAI/flymyai-lora-trainer&type=Date)](https://www.star-history.com/#FlyMyAI/flymyai-lora-trainer&Date)
