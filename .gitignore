@@ -58,3 +58,5 @@ test_lora_saves/
 wandb/
 lora_saves*/   
 outputs/
+qwen-origin-output-lv1-3/
+*.tar.gz

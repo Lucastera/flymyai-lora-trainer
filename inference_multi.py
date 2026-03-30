@@ -223,10 +223,10 @@ def main():
     # ===== Configuration Parameters =====
     # level1 experiment settings !!
     model_name = "Qwen/Qwen-Image"
-    lora_weights = "lora_saves_level_1/checkpoint-3000/pytorch_lora_weights.safetensors"
+    lora_weights = ""
     
     # Dataset configuration
-    base_dir = "ColorBench-v1/Finetune_LevelALL_Sets"
+    base_dir = "ColorBench-v1/Finetune_Level1_Sets"
     prompt_levels = [1]
     color_levels = [1, 2, 3]
     split = 'test'
