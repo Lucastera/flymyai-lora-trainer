@@ -60,3 +60,7 @@ lora_saves*/
 outputs/
 qwen-origin-output-lv1-3/
 *.tar.gz
+main_picture.svg
+count_files.sh
+.gitignore
+qwen_image_lora_outputs.tar.gz

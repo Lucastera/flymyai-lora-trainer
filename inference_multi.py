@@ -59,7 +59,7 @@ def generate_output_dir_name(model_name, prompt_levels, color_levels, split, max
     # Combine directory name
     dir_name = f"{model_short}{lora_flag}_P{p_str}_C{c_str}_{split}_{samples_str}"
     
-    return os.path.join("outputs", dir_name)
+    return os.path.join("/data4/kuan/outputs", dir_name)
 
 
 def load_or_create_sample_list(output_dir, base_dir, prompt_levels, color_levels, split, max_samples_per_dir):
@@ -221,7 +221,7 @@ def save_config(output_dir, config, total_prompts):
 
 def main():
     # ===== Configuration Parameters =====
-    # level1 experiment settings !!
+    # level experiment settings !!
     model_name = "Qwen/Qwen-Image"
     lora_weights = ""
     

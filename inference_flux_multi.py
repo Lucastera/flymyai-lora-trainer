@@ -223,10 +223,10 @@ def main():
     # ===== Configuration Parameters =====
     # flux experiment settings !!
     model_name = "black-forest-labs/FLUX.1-dev"
-    lora_weights = "/data4/kuan/lora_saves_flux_finetune/checkpoint-3000/pytorch_lora_weights.safetensors"
+    lora_weights = ""
     
     # Dataset configuration
-    base_dir = "ColorBench-v1/Test_Sets"
+    base_dir = "ColorBench-v1/Finetune_LevelALL_Sets"
     prompt_levels = [1, 2, 3, 4, 5, 6]
     color_levels = [1, 2, 3]
     split = 'test'
@@ -238,7 +238,7 @@ def main():
     negative_prompt = " "
     width = 384
     height = 384
-    num_inference_steps = 50
+    num_inference_steps = 28
     true_cfg_scale = 5.0
     base_seed = 42
     batch_size = 64

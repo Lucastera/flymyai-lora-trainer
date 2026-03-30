@@ -59,7 +59,7 @@ def generate_output_dir_name(model_name, prompt_levels, color_levels, split, max
     # Combine directory name
     dir_name = f"{model_short}{lora_flag}_P{p_str}_C{c_str}_{split}_{samples_str}"
     
-    return os.path.join("outputs", dir_name)
+    return os.path.join("outputs", "Finetune_Level1_Sets", dir_name)
 
 
 def load_or_create_sample_list(output_dir, base_dir, prompt_levels, color_levels, split, max_samples_per_dir):
@@ -253,9 +253,10 @@ def save_config(output_dir, config, total_prompts):
 
 
 def generate_for_checkpoint(checkpoint_num, lora_weights, output_dir, distributed_state, 
-                            model_name, base_dir, prompt_levels, color_levels, split,
+                            pipe, base_dir, prompt_levels, color_levels, split,
                             max_samples_per_dir, negative_prompt, width, height,
-                            num_inference_steps, true_cfg_scale, base_seed, batch_size):
+                            num_inference_steps, true_cfg_scale, base_seed, batch_size,
+                            model_name):
     """
     Generate images for a single checkpoint
     """
@@ -337,36 +338,6 @@ def generate_for_checkpoint(checkpoint_num, lora_weights, output_dir, distribute
     prompts = [item[1] for item in pending_data]
     relative_paths = [item[2] for item in pending_data]
 
-    torch_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-
-    if distributed_state.is_main_process:
-        print(f"Using {distributed_state.num_processes} GPUs")
-        print(f"Batch size: {batch_size}")
-        print(f"Loading model and LoRA weights...")
-
-    pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
-
-    if lora_weights:
-        pipe.load_lora_weights(lora_weights, adapter_name="lora")
-
-    if distributed_state.is_main_process:
-        print("Applying qfloat8 quantization...")
-
-    all_blocks = list(pipe.transformer.transformer_blocks)
-    for block in tqdm(all_blocks, disable=not distributed_state.is_main_process):
-        block.to("cuda", dtype=torch_dtype)
-        quantize(block, weights=qfloat8)
-        freeze(block)
-        block.to('cpu')
-    pipe.transformer.to("cuda", dtype=torch_dtype)
-    quantize(pipe.transformer, weights=qfloat8)
-    freeze(pipe.transformer)
-
-    if distributed_state.is_main_process:
-        print("Quantization complete.")
-
-    pipe.enable_model_cpu_offload(gpu_id=distributed_state.process_index)
-
     task_indices = list(range(len(prompts)))
 
     # Start timing
@@ -425,10 +396,6 @@ def generate_for_checkpoint(checkpoint_num, lora_weights, output_dir, distribute
         print(f"Total time: {total_time:.2f}s")
         print(f"Average per image: {total_time/len(prompts):.2f}s")
         print(f"{'='*50}\n")
-    
-    # Clean up to free memory
-    del pipe
-    torch.cuda.empty_cache()
 
 
 def main():
@@ -436,12 +403,12 @@ def main():
     model_name = "Qwen/Qwen-Image"
     
     # LoRA checkpoint configuration
-    lora_base_dir = "lora_saves_color_split_sets1"
+    lora_base_dir = "lora_saves_qwen_finetune_result_3e-4"
     checkpoint_list = list(range(100, 3100, 100))  # [100, 200, 300, ..., 3000]
     
     # Dataset configuration
-    base_dir = "ColorBench-v1/Color_Split_Sets1"
-    prompt_levels = [1, 2, 3]
+    base_dir = "ColorBench-v1/Finetune_Level1_Sets"
+    prompt_levels = [1]
     color_levels = [1, 2, 3]
     split = 'test'
     
@@ -466,6 +433,34 @@ def main():
         print(f"Checkpoints to process: {checkpoint_list}")
         print(f"Total checkpoints: {len(checkpoint_list)}")
         print(f"{'='*60}\n")
+    
+    # Load model once
+    torch_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+    
+    if distributed_state.is_main_process:
+        print(f"Using {distributed_state.num_processes} GPUs")
+        print(f"Batch size: {batch_size}")
+        print(f"Loading base model...")
+    
+    pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
+    
+    if distributed_state.is_main_process:
+        print("Applying qfloat8 quantization...")
+    
+    all_blocks = list(pipe.transformer.transformer_blocks)
+    for block in tqdm(all_blocks, disable=not distributed_state.is_main_process):
+        block.to("cuda", dtype=torch_dtype)
+        quantize(block, weights=qfloat8)
+        freeze(block)
+        block.to('cpu')
+    pipe.transformer.to("cuda", dtype=torch_dtype)
+    quantize(pipe.transformer, weights=qfloat8)
+    freeze(pipe.transformer)
+    
+    if distributed_state.is_main_process:
+        print("Quantization complete.")
+    
+    pipe.enable_model_cpu_offload(gpu_id=distributed_state.process_index)
     
     # Loop through all checkpoints
     for ckpt_num in checkpoint_list:
@@ -496,13 +491,22 @@ def main():
                 print(f"Warning: LoRA weights not found: {lora_weights}, skipping...")
             continue
         
+        # Switch LoRA adapter
+        if distributed_state.is_main_process:
+            print(f"Loading LoRA weights for checkpoint-{ckpt_num}...")
+        
+        # Delete old adapter if exists, then load new one
+        if "lora" in pipe.get_list_adapters().get("transformer", []):
+            pipe.delete_adapters("lora")
+        pipe.load_lora_weights(lora_weights, adapter_name="lora")
+        
         # Generate for this checkpoint
         generate_for_checkpoint(
             checkpoint_num=ckpt_num,
             lora_weights=lora_weights,
             output_dir=output_dir,
             distributed_state=distributed_state,
-            model_name=model_name,
+            pipe=pipe,
             base_dir=base_dir,
             prompt_levels=prompt_levels,
             color_levels=color_levels,
@@ -514,11 +518,16 @@ def main():
             num_inference_steps=num_inference_steps,
             true_cfg_scale=true_cfg_scale,
             base_seed=base_seed,
-            batch_size=batch_size
+            batch_size=batch_size,
+            model_name=model_name
         )
         
         # Sync before next checkpoint
         distributed_state.wait_for_everyone()
+    
+    # Clean up
+    del pipe
+    torch.cuda.empty_cache()
     
     if distributed_state.is_main_process:
         print(f"\n{'='*60}")
