@@ -64,3 +64,6 @@ main_picture.svg
 count_files.sh
 .gitignore
 qwen_image_lora_outputs.tar.gz
+generate_worst_images.py
+ColorBench_simple_and_resolution/
+ColorBench_simple_and_resolution.zip

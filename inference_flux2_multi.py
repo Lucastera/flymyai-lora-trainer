@@ -57,7 +57,7 @@ def generate_output_dir_name(model_name, prompt_levels, color_levels, split, max
         samples_str = str(max_samples_per_dir)
     
     # Combine directory name
-    dir_name = f"{model_short}{lora_flag}_P{p_str}_C{c_str}_{split}_{samples_str}_1024"
+    dir_name = f"{model_short}{lora_flag}_P{p_str}_C{c_str}_{split}_{samples_str}"
     
     return os.path.join("/data4/kuan/outputs", dir_name)
 
@@ -221,27 +221,27 @@ def save_config(output_dir, config, total_prompts):
 
 def main():
     # ===== Configuration Parameters =====
-    # level experiment settings !!
-    model_name = "Qwen/Qwen-Image"
+    # flux experiment settings !!
+    model_name = "black-forest-labs/FLUX.2-klein-4B"
     lora_weights = ""
     
     # Dataset configuration
-    base_dir = "ColorBench_simple_and_resolution/Resolution512_Set"
-    prompt_levels = [1]
+    base_dir = "ColorBench-v1/Test_Sets"
+    prompt_levels = [1, 2, 3, 4, 5, 6]
     color_levels = [1, 2, 3]
     split = 'test'
     
     # Sampling configuration (None means no limit)
-    max_samples_per_dir = None
+    max_samples_per_dir = 1000
     
     # Generation parameters
     negative_prompt = " "
-    width = 1024
-    height = 1024
-    num_inference_steps = 50
+    width = 384
+    height = 384
+    num_inference_steps = 28
     true_cfg_scale = 5.0
     base_seed = 42
-    batch_size = 32
+    batch_size = 64
     
     # Auto-generate output directory name
     output_dir = generate_output_dir_name(
@@ -384,11 +384,11 @@ def main():
 
             images = pipe(
                 prompt=batch_prompts,
-                negative_prompt=batch_neg_prompts,
+                # negative_prompt=batch_neg_prompts,
                 width=width,
                 height=height,
                 num_inference_steps=num_inference_steps,
-                true_cfg_scale=true_cfg_scale,
+                # true_cfg_scale=true_cfg_scale,
                 generator=generator,
             ).images
 

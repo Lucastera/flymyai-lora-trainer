@@ -6,7 +6,7 @@ START_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 LOG_FILE="run_$(date '+%Y%m%d_%H%M%S').log"
 
 # 执行命令并保存日志
-CUDA_VISIBLE_DEVICES=1,2,3,4,5,6,7 accelerate launch --num_processes=7 inference_multi.py 2>&1 | tee "$LOG_FILE"
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 accelerate launch --num_processes=8 inference_multi.py 2>&1 | tee "$LOG_FILE"
 
 EXIT_CODE=${PIPESTATUS[0]}
 END_TIME=$(date '+%Y-%m-%d %H:%M:%S')
