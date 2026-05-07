@@ -24,7 +24,7 @@ def parse_args():
     
     # Dataset configuration
     parser.add_argument('--base_dir', type=str, 
-                        default='/home/kuan/workspace/flymyai-lora-trainer/VIOLIN_v2/data',
+                        default='VIOLIN_v2/data',
                         help='Base directory containing test.jsonl')
     parser.add_argument('--variations', type=str, default='123',
                         help='Variation types to generate, e.g., "123", "12", "1" (default: "123")')

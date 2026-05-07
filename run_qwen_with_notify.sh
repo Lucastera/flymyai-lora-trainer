@@ -3,16 +3,16 @@
 KEY="SCT311782TSxxalR1CG55SoCD8QXqet4x6"
 HOST=$(hostname)
 START_TIME=$(date '+%Y-%m-%d %H:%M:%S')
-LOG_FILE="run_flux2_$(date '+%Y%m%d_%H%M%S').log"
+LOG_FILE="run_zimage_$(date '+%Y%m%d_%H%M%S').log"
 
 # 执行命令并保存日志
 CUDA_VISIBLE_DEVICES=4,5,6,7 accelerate launch \
     --num_processes=4 \
     inference_multi_volin_v2.py \
     --variations 123 \
-    --model_name=Qwen/Qwen-Image \
-    --width=256 \
-    --height=256 2>&1 | tee "$LOG_FILE"
+    --model_name=Tongyi-MAI/Z-Image \
+    --width=512 \
+    --height=512 2>&1 | tee "$LOG_FILE"
 
 EXIT_CODE=${PIPESTATUS[0]}
 END_TIME=$(date '+%Y-%m-%d %H:%M:%S')

@@ -70,3 +70,4 @@ ColorBench_simple_and_resolution.zip
 ColorBench_simple_and_resolution/
 VIOLIN_v2/
 test_qwen_edit.py
+test_results/
