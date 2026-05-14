@@ -71,3 +71,6 @@ ColorBench_simple_and_resolution/
 VIOLIN_v2/
 test_qwen_edit.py
 test_results/
+evaluate_mask.py
+results/
+analysis_results/
