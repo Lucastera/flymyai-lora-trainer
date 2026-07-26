@@ -90,17 +90,13 @@ def parse_variations(variations_str):
     return sorted(variations)
 
 
-def generate_output_dir_name(model_name, variations, width, height, lora_weights="", max_samples=None):
+def generate_output_dir_name(model_name, variations, width, height, lora_weights="", max_samples=None, base_seed=None):
     """
     Auto-generate output directory name based on configuration
     
     Format: 
-      - {model_short_name}_{lora_name}_V{variations}_{resolution}
+      - {model_short_name}_{lora_name}_V{variations}_{resolution}_seed{N}
       - With sampling: add _sample{N} suffix
-    
-    Examples:
-      - FLUX.2-klein-4B_V1-2-3_256x256
-      - FLUX.2-klein-4B_lora_mymodel_ckpt3000_V1-2_512x512_sample100
     """
     model_short = model_name.split('/')[-1]
     
@@ -121,10 +117,11 @@ def generate_output_dir_name(model_name, variations, width, height, lora_weights
     v_str = "V" + "-".join(map(str, variations))
     resolution_str = f"{width}x{height}"
     sample_suffix = f"_sample{max_samples}" if max_samples is not None else ""
+    seed_suffix = f"_seed{base_seed}" if base_seed is not None else ""  # <<< 新增
     
-    dir_name = f"{model_short}{lora_flag}_{v_str}_{resolution_str}{sample_suffix}"
+    dir_name = f"{model_short}{lora_flag}_{v_str}_{resolution_str}{sample_suffix}{seed_suffix}"  # <<< 改这一行
     
-    return os.path.join("outputs", dir_name)
+    return os.path.join("/data4/kuan/outputs", dir_name)
 
 
 def load_or_create_sample_list(output_dir, base_dir, variations, max_samples, sample_seed):
@@ -347,7 +344,8 @@ def main():
             args.width,
             args.height,
             args.lora_weights,
-            args.max_samples
+            args.max_samples,
+            args.base_seed
         )
     
     os.makedirs(output_dir, exist_ok=True)

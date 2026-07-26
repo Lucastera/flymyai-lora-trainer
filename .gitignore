@@ -73,4 +73,5 @@ test_qwen_edit.py
 test_results/
 evaluate_mask.py
 results/
-analysis_results/
+analysis_results*/
+analyze_quality_v4.py
