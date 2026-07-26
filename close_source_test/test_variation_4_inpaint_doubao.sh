@@ -1,0 +1,1 @@
+python test_variation_4_inpaint.py --model doubao

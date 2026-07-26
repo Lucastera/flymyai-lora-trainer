@@ -1,0 +1,1 @@
+python test_variation_2.py --model doubao

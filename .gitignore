@@ -75,3 +75,8 @@ evaluate_mask.py
 results/
 analysis_results*/
 analyze_quality_v4.py
+Ablation_Sensitivity_Report.txt
+analyze_xlsx_data.py
+Table1_Aggregated_Metrics.xlsx
+Table2_Ablation_Results.xlsx
+Violin-NeurIPS.xlsx
